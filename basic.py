@@ -569,7 +569,7 @@ class Interpreter:
 		res= RunTimeResult()
 		var_name = node.var_name_tok.value
 		value = res.register(self.visit(node.value_node, context))
-		if res.error:return res
+		if res.error: return res
 
 		context.symbol_table.set(var_name, value)
 		return res.success(value)
@@ -579,6 +579,7 @@ class Interpreter:
 		left = res.register(self.visit(node.left_node, context))
 		if res.error: return res
 		right = res.register(self.visit(node.right_node, context))
+		if res.error: return res
 
 		if node.op_tok.type == TT_PLUS:
 			result, error = left.added_to(right)
@@ -627,7 +628,7 @@ def run(fn, text):
 		# Generate AST
 		parser = Parser(tokens)
 		ast = parser.parse()
-		if error: return None, ast.error
+		if ast.error: return None, ast.error
 
 		#Run Program
 		interpreter = Interpreter()
