@@ -13,11 +13,14 @@ factor: PLUS|MINUS factor
 
 power: atom(POW factor)*
 
+call : atom(LPAREN (expr (COMMA expr)*)? RPAREN)?
+
 atom: INT|FLOAT|IDENTIFIER
     : LPAREN expr RPAREN
     : if expr
     : for expr
     : while expr
+    : func def
 
 if-expr : KEYWORD: IF expr KEYWORD: THEN expr
           (KEYWORD:ELIF expr KEYWORD:THEN expr)*
@@ -28,3 +31,9 @@ for expr: KEYWORD: FOR IDENTIFIER EQ expr KEYWORD: TO expr
 
 while expr: KEYWORD: WHILE expr KEYWORD: THEN expr
 
+func def : KEYWORD: FUN IDENTIFIER?
+           LPARENT (IDENTIFIER (COMMA IDENTIFIER)* )? RPAREN
+           ARROW expr
+
+* means 0 or more
+? means optional
