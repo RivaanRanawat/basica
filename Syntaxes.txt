@@ -2,4 +2,4 @@ VAR <variableName> = <value>
 IF <condition> THEN <expression> ELIF <condition> THEN <EXPRESSION> ELSE <EXPRESSION>
 FOR <variableName> = <startVALUE> to <endValue> THEN <expr> #Step option also there so as to increment
 WHILE <condition> THEN <expression>
-FUN <name> (variable, variable) = <expression>
+FUN <name> (variable, variable) ->expression> 
