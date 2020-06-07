@@ -6,4 +6,6 @@ while True:
 	result, error = basic.run('<stdin>', text)
 
 	if error: print(error.as_string())
-	elif result: print(result)
+	elif result: print(repr(result))
+
+	#because we want to print the repr instead of print

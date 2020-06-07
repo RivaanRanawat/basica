@@ -3,3 +3,19 @@ IF <condition> THEN <expression> ELIF <condition> THEN <EXPRESSION> ELSE <EXPRES
 FOR <variableName> = <startVALUE> to <endValue> THEN <expr> #Step option also there so as to increment
 WHILE <condition> THEN <expression>
 FUN <name> (variable, variable) ->expression> 
+
+BUILT IN FUNCTIONS:
+PRINT
+PRINT_RET -> Returns the value that is going to be printed
+INPUT -> for string
+INPUT_INT
+CLEAR -. clear screen
+<Checking types of methods>
+IS_NUMBER
+IS_STRING
+IS_LIST
+IS_FUNCTION
+</Checking types of methods>
+APPEND -> add to the list
+POP -> remove from the list
+EXTEND -> concatenate two lists
