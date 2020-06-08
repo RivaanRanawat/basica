@@ -4,6 +4,8 @@ FOR <variableName> = <startVALUE> to <endValue> THEN <expr> #Step option also th
 WHILE <condition> THEN <expression>
 FUN <name> (variable, variable) ->expression> 
 
+
+
 BUILT IN FUNCTIONS:
 PRINT
 PRINT_RET -> Returns the value that is going to be printed
@@ -19,3 +21,15 @@ IS_FUNCTION
 APPEND -> add to the list
 POP -> remove from the list
 EXTEND -> concatenate two lists
+
+eg of FOR loop(multi line):
+VAR a = []
+FOR i = 0 TO 20 THEN; IF i ==4 THEN CONTINUE ELIF i==8 THEN BREAK; VAR a = a+i; END
+
+OUTPUT: [0, 1, 2, 3, 5, 6, 7]
+
+eg of WHILE loop(multi line):
+VAR a =[]
+VAR i =0
+WHILE i<20 THEN; VAR i = i+1; IF i ==4 THEN CONTINUE; IF i == 8 THEN BREAK; VAR a = a+i; END
+OUTPUT: [0, 1, 2, 3, 5, 6, 7]

@@ -128,7 +128,10 @@ KEYWORDS = [
   'WHILE',
   'FUN',
   'THEN',
-  'END'
+  'END',
+  'RETURN',
+  'CONTINUE',
+  'BREAK'
 ]
 
 class Token:
@@ -171,6 +174,8 @@ class Lexer:
     while self.current_char != None:
       if self.current_char in ' \t':
         self.advance()
+      elif self.current_char == '#':
+        self.skip_comment()
       elif self.current_char in ';\n':
       	tokens.append(Token(TT_NL, pos_start = self.pos))
       	self.advance()
@@ -336,6 +341,13 @@ class Lexer:
 
     return Token(tok_type, pos_start=pos_start, pos_end=self.pos)
 
+  def skip_comment(self):
+    self.advance()
+
+    while self.current_char != '\n':
+      self.advance()
+    self.advance()
+
 #NumberNode
 #Takes the token that will be float or an int
 
@@ -443,11 +455,11 @@ class FuncDefNode:
 	# var_name_tok = none if the function is anonymous
 	#arg_name_toks = arguments
 	#body_node = evaluated when function is called(might have lists in the future because the function could be multiline)
-  def __init__(self, var_name_tok, arg_name_toks, body_node, should_return_null):
+  def __init__(self, var_name_tok, arg_name_toks, body_node, should_auto_return):
     self.var_name_tok = var_name_tok
     self.arg_name_toks = arg_name_toks
     self.body_node = body_node
-    self.should_return_null = should_return_null
+    self.should_auto_return = should_auto_return
 
     #if the function has the name then pos_start is in functions name
     if self.var_name_tok:
@@ -472,6 +484,23 @@ class CallNode:
       self.pos_end = self.arg_nodes[len(self.arg_nodes) - 1].pos_end
     else:
       self.pos_end = self.node_to_call.pos_end
+
+class ReturnNode:
+  def __init__(self, node_to_return, pos_start, pos_end):
+    self.node_to_return = node_to_return
+
+    self.pos_start = pos_start
+    self.pos_end = pos_end
+
+class ContinueNode:
+  def __init__(self, pos_start, pos_end):
+    self.pos_start = pos_start
+    self.pos_end = pos_end
+
+class BreakNode:
+  def __init__(self, pos_start, pos_end):
+    self.pos_start = pos_start
+    self.pos_end = pos_end
 
 #Parser Result- check if there are errors
 
@@ -550,7 +579,7 @@ class Parser:
       res.register_advancement()
       self.advance()
 
-    statement = res.register(self.expr())
+    statement = res.register(self.statement())
     if res.error: return res
     statements.append(statement)
 
@@ -566,7 +595,7 @@ class Parser:
         more_statements = False
       
       if not more_statements: break
-      statement = res.try_register(self.expr())
+      statement = res.try_register(self.statement())
       if not statement:
       	# expr method could have made it advance so reverse the count ans then reverse it
         self.reverse(res.to_reverse_count)
@@ -579,6 +608,76 @@ class Parser:
       pos_start,
       self.current_tok.pos_end.copy()
     ))
+
+
+  def statements(self):
+    res = ParseResult()
+    statements = []
+    pos_start = self.current_tok.pos_start.copy()
+
+    while self.current_tok.type == TT_NL:
+      res.register_advancement()
+      self.advance()
+
+    statement = res.register(self.statement())
+    if res.error: return res
+    statements.append(statement)
+
+    more_statements = True
+
+    while True:
+      newline_count = 0
+      while self.current_tok.type == TT_NL:
+        res.register_advancement()
+        self.advance()
+        newline_count += 1
+      if newline_count == 0:
+        more_statements = False
+      
+      if not more_statements: break
+      statement = res.try_register(self.statement())
+      if not statement:
+        self.reverse(res.to_reverse_count)
+        more_statements = False
+        continue
+      statements.append(statement)
+
+    return res.success(ListNode(
+      statements,
+      pos_start,
+      self.current_tok.pos_end.copy()
+    ))
+
+  def statement(self):
+    res = ParseResult()
+    pos_start = self.current_tok.pos_start.copy()
+
+    if self.current_tok.matches(TT_KEYWORD, 'RETURN'):
+      res.register_advancement()
+      self.advance()
+
+      expr = res.try_register(self.expr())
+      if not expr:
+        self.reverse(res.to_reverse_count)
+      return res.success(ReturnNode(expr, pos_start, self.current_tok.pos_start.copy()))
+    
+    if self.current_tok.matches(TT_KEYWORD, 'CONTINUE'):
+      res.register_advancement()
+      self.advance()
+      return res.success(ContinueNode(pos_start, self.current_tok.pos_start.copy()))
+      
+    if self.current_tok.matches(TT_KEYWORD, 'BREAK'):
+      res.register_advancement()
+      self.advance()
+      return res.success(BreakNode(pos_start, self.current_tok.pos_start.copy()))
+
+    expr = res.register(self.expr())
+    if res.error:
+      return res.failure(InvalidSyntaxError(
+        self.current_tok.pos_start, self.current_tok.pos_end,
+        "Expected 'RETURN', 'CONTINUE', 'BREAK', 'VAR', 'IF', 'FOR', 'WHILE', 'FUN', int, float, identifier, '+', '-', '(', '[' or 'NOT'"
+      ))
+    return res.success(expr)
 
 
   def expr(self):
@@ -853,7 +952,7 @@ class Parser:
             "Expected 'END'"
           ))
       else:
-        expr = res.register(self.expr())
+        expr = res.register(self.statement())
         if res.error: return res
         else_case = (expr, False)
 
@@ -917,7 +1016,7 @@ class Parser:
         new_cases, else_case = all_cases
         cases.extend(new_cases)
     else:
-      expr = res.register(self.expr())
+      expr = res.register(self.statement())
       if res.error: return res
       cases.append((condition, expr, False))
 
@@ -950,7 +1049,7 @@ class Parser:
     res.register_advancement()
     self.advance()
 
-    if self.current_tok.type != TT_EQ:
+    if self.current_tok.type != TT_EQUALS:
       return res.failure(InvalidSyntaxError(
         self.current_tok.pos_start, self.current_tok.pos_end,
         f"Expected '='"
@@ -992,7 +1091,7 @@ class Parser:
     res.register_advancement()
     self.advance()
 
-    if self.current_tok.type == TT_NEWLINE:
+    if self.current_tok.type == TT_NL:
       res.register_advancement()
       self.advance()
 
@@ -1010,7 +1109,7 @@ class Parser:
 
       return res.success(ForNode(var_name, start_value, end_value, step_value, body, True))
     
-    body = res.register(self.expr())
+    body = res.register(self.statement())
     if res.error: return res
 
     return res.success(ForNode(var_name, start_value, end_value, step_value, body, False))
@@ -1039,7 +1138,7 @@ class Parser:
     res.register_advancement()
     self.advance()
 
-    if self.current_tok.type == TT_NEWLINE:
+    if self.current_tok.type == TT_NL:
       res.register_advancement()
       self.advance()
 
@@ -1057,7 +1156,7 @@ class Parser:
 
       return res.success(WhileNode(condition, body, True))
     
-    body = res.register(self.expr())
+    body = res.register(self.statement())
     if res.error: return res
 
     return res.success(WhileNode(condition, body, False))
@@ -1144,12 +1243,12 @@ class Parser:
         var_name_tok,
         arg_name_toks,
         body,
-        False
+        True
       ))
 
 
     
-    if self.current_tok.type != TT_NEWLINE:
+    if self.current_tok.type != TT_NL:
       return res.failure(InvalidSyntaxError(
         self.current_tok.pos_start, self.current_tok.pos_end,
         f"Expected '->' or NEWLINE"
@@ -1174,7 +1273,7 @@ class Parser:
       var_name_tok,
       arg_name_toks,
       body,
-      True
+      False
     ))
 
 
@@ -1203,20 +1302,57 @@ class Parser:
 
 class RunTimeResult:
   def __init__(self):
+    self.reset()
+
+  def reset(self):
     self.value = None
     self.error = None
+    #When func_return_value is called we will return it up the node tree & then move func_return_value to the value
+    self.func_return_value = None
+    self.loop_should_continue = False
+    self.loop_should_break = False
 
   def register(self, res):
     self.error = res.error
+    self.func_return_value = res.func_return_value
+    self.loop_should_continue = res.loop_should_continue
+    self.loop_should_break = res.loop_should_break
     return res.value
-
+#Value Success 
   def success(self, value):
+    #When we assign value we want to stop the propogation of other values
+    self.reset()
     self.value = value
+    return self
+#RETURN Success
+  def success_return(self, value):
+    self.reset()
+    self.func_return_value = value
+    return self
+#CONTINUE Success
+  def success_continue(self):
+    self.reset()
+    self.loop_should_continue = True
+    return self
+
+  def success_break(self):
+    self.reset()
+    self.loop_should_break = True
     return self
 
   def failure(self, error):
+    #so that the only thing we are giving out is the error
+    self.reset()
     self.error = error
     return self
+
+  def should_return(self):
+    return(
+      self.error or
+      self.func_return_value or
+      self.loop_should_continue or
+      self.loop_should_break
+    )
 
 #Values
 #This class is made so thjat there are not much repetitions in the Number class
@@ -1532,17 +1668,17 @@ class BaseFunction(Value):
   def check_and_populate_args(self, arg_names, args, exec_ctx):
     res = RunTimeResult()
     res.register(self.check_args(arg_names, args))
-    if res.error: return res
+    if res.should_return(): return res
     self.populate_args(arg_names, args, exec_ctx)
     return res.success(None)
 
 class Function(BaseFunction):
-  def __init__(self, name, body_node, arg_names, should_return_null):
+  def __init__(self, name, body_node, arg_names, should_auto_return):
   	#Name is done in base class so just put in  superinit
     super().__init__(name)
     self.body_node = body_node
     self.arg_names = arg_names
-    self.should_return_null = should_return_null
+    self.should_auto_return = should_auto_return
 
   def execute(self, args):
     res = RunTimeResult()
@@ -1550,14 +1686,16 @@ class Function(BaseFunction):
     exec_ctx = self.generate_new_context()
 
     res.register(self.check_and_populate_args(self.arg_names, args, exec_ctx))
-    if res.error: return res
+    if res.should_return(): return res
 
     value = res.register(interpreter.visit(self.body_node, exec_ctx))
-    if res.error: return res
-    return res.success(Number.null if self.should_return_null else value)
+    if res.should_return() and res.func_return_value == None: return res
+
+    ret_value = (value if self.should_auto_return else None) or res.func_return_value or Number.null
+    return res.success(ret_value)
 
   def copy(self):
-    copy = Function(self.name, self.body_node, self.arg_names, self.should_return_null)
+    copy = Function(self.name, self.body_node, self.arg_names, self.should_auto_return)
     copy.set_context(self.context)
     copy.set_pos(self.pos_start, self.pos_end)
     return copy
@@ -1577,10 +1715,10 @@ class BuiltInFunction(BaseFunction):
     method = getattr(self, method_name, self.no_visit_method)
 
     res.register(self.check_and_populate_args(method.arg_names, args, exec_ctx))
-    if res.error: return res
+    if res.should_return(): return res
 
     return_value = res.register(method(exec_ctx))
-    if res.error: return res
+    if res.should_return(): return res
     return res.success(return_value)
   
   def no_visit_method(self, node, context):
@@ -1714,6 +1852,54 @@ class BuiltInFunction(BaseFunction):
     return RunTimeResult().success(Number.null)
   execute_extend.arg_names = ["listA", "listB"]
 
+  def execute_len(self, exec_ctx):
+    list_ = exec_ctx.symbol_table.get("list")
+
+    if not isinstance(list_, List):
+      return RunTimeResult().failure(RTError(
+        self.pos_start, self.pos_end,
+        "Argument must be list",
+        exec_ctx
+      ))
+
+    return RunTimeResult().success(Number(len(list_.elements)))
+  execute_len.arg_names = ["list"]
+
+  def execute_run(self, exec_ctx):
+    fn = exec_ctx.symbol_table.get("fn")
+
+    if not isinstance(fn, String):
+      return RunTimeResult().failure(RTError(
+        self.pos_start, self.pos_end,
+        "Second argument must be string",
+        exec_ctx
+      ))
+
+    fn = fn.value
+
+    try:
+      with open(fn, "r") as f:
+        script = f.read()
+    except Exception as e:
+      return RunTimeResult().failure(RTError(
+        self.pos_start, self.pos_end,
+        f"Failed to load script \"{fn}\"\n" + str(e),
+        exec_ctx
+      ))
+
+    _, error = run(fn, script)
+    
+    if error:
+      return RunTimeResult().failure(RunTimeError(
+        self.pos_start, self.pos_end,
+        f"Failed to finish executing script \"{fn}\"\n" +
+        error.as_string(),
+        exec_ctx
+      ))
+
+    return RunTimeResult().success(Number.null)
+  execute_run.arg_names = ["fn"]
+
 BuiltInFunction.print       = BuiltInFunction("print")
 BuiltInFunction.print_ret   = BuiltInFunction("print_ret")
 BuiltInFunction.input       = BuiltInFunction("input")
@@ -1726,6 +1912,8 @@ BuiltInFunction.is_function = BuiltInFunction("is_function")
 BuiltInFunction.append      = BuiltInFunction("append")
 BuiltInFunction.pop         = BuiltInFunction("pop")
 BuiltInFunction.extend      = BuiltInFunction("extend")
+BuiltInFunction.len         = BuiltInFunction("len")
+BuiltInFunction.run      = BuiltInFunction("run")
 
 
 
@@ -1789,7 +1977,7 @@ class Interpreter: #Visits all the child node
 
     for element_node in node.element_nodes:
       elements.append(res.register(self.visit(element_node, context)))
-      if res.error: return res
+      if res.should_return(): return res
 
     return res.success(
       List(elements).set_context(context).set_pos(node.pos_start, node.pos_end)
@@ -1815,7 +2003,7 @@ class Interpreter: #Visits all the child node
     res = RunTimeResult()
     var_name = node.var_name_tok.value
     value = res.register(self.visit(node.value_node, context))
-    if res.error: return res
+    if res.should_return(): return res
 
     context.symbol_table.set(var_name, value)
     return res.success(value)
@@ -1823,9 +2011,9 @@ class Interpreter: #Visits all the child node
   def visit_BinOpNode(self, node, context):
     res = RunTimeResult()
     left = res.register(self.visit(node.left_node, context))
-    if res.error: return res
+    if res.should_return(): return res
     right = res.register(self.visit(node.right_node, context))
-    if res.error: return res
+    if res.should_return(): return res
 
     if node.op_tok.type == TT_PLUS:
       result, error = left.added_to(right)
@@ -1862,7 +2050,7 @@ class Interpreter: #Visits all the child node
   def visit_UnaryOpNode(self, node, context):
     res = RunTimeResult()
     number = res.register(self.visit(node.node, context))
-    if res.error: return res
+    if res.should_return(): return res
 
     error = None
 
@@ -1881,17 +2069,17 @@ class Interpreter: #Visits all the child node
 
     for condition, expr, should_return_null in node.cases:
       condition_value = res.register(self.visit(condition, context))
-      if res.error: return res
+      if res.should_return(): return res
 
       if condition_value.is_true():
         expr_value = res.register(self.visit(expr, context))
-        if res.error: return res
+        if res.should_return(): return res
         return res.success(Number.null if should_return_null else expr_value)
 
     if node.else_case:
       expr, should_return_null = node.else_case
       expr_value = res.register(self.visit(expr, context))
-      if res.error: return res
+      if res.should_return(): return res
       return res.success(Number.null if should_return_null else expr_value)
 
 
@@ -1902,14 +2090,14 @@ class Interpreter: #Visits all the child node
     elements = []
 
     start_value = res.register(self.visit(node.start_value_node, context))
-    if res.error: return res
+    if res.should_return(): return res
 
     end_value = res.register(self.visit(node.end_value_node, context))
-    if res.error: return res
+    if res.should_return(): return res
 
     if node.step_value_node:
       step_value = res.register(self.visit(node.step_value_node, context))
-      if res.error: return res
+      if res.should_return(): return res
     else:
       step_value = Number(1)
 
@@ -1924,8 +2112,16 @@ class Interpreter: #Visits all the child node
       context.symbol_table.set(node.var_name_tok.value, Number(i))
       i += step_value.value
 
-      elements.append(res.register(self.visit(node.body_node, context)))
-      if res.error: return res
+      value = res.register(self.visit(node.body_node, context))
+      if res.should_return() and res.loop_should_continue==False and res.loop_should_break == False: return res
+
+      if res.loop_should_continue:
+        continue
+
+      if res.loop_should_break:
+        break
+
+      elements.append(value)
 
     return res.success(
       Number.null if node.should_return_null else
@@ -1938,12 +2134,20 @@ class Interpreter: #Visits all the child node
 
     while True:
       condition = res.register(self.visit(node.condition_node, context))
-      if res.error: return res
+      if res.should_return(): return res
 
       if not condition.is_true(): break
 
-      elements.append(res.register(self.visit(node.body_node, context)))
-      if res.error: return res
+      value = res.register(self.visit(node.body_node, context))
+      if res.should_return() and res.loop_should_continue==False and res.loop_should_break == False: return res
+
+      if res.loop_should_continue:
+        continue
+
+      if res.loop_should_break:
+        break
+
+      elements.append(value)
 
     return res.success(
       Number.null if node.should_return_null else
@@ -1956,7 +2160,7 @@ class Interpreter: #Visits all the child node
     func_name = node.var_name_tok.value if node.var_name_tok else None
     body_node = node.body_node
     arg_names = [arg_name.value for arg_name in node.arg_name_toks]
-    func_value = Function(func_name, body_node, arg_names, node.should_return_null).set_context(context).set_pos(node.pos_start, node.pos_end)
+    func_value = Function(func_name, body_node, arg_names, node.should_auto_return).set_context(context).set_pos(node.pos_start, node.pos_end)
     
     if node.var_name_tok:
       context.symbol_table.set(func_name, func_value)
@@ -1968,17 +2172,34 @@ class Interpreter: #Visits all the child node
     args = []
 
     value_to_call = res.register(self.visit(node.node_to_call, context))
-    if res.error: return res
+    if res.should_return(): return res
     value_to_call = value_to_call.copy().set_pos(node.pos_start, node.pos_end)
 
     for arg_node in node.arg_nodes:
       args.append(res.register(self.visit(arg_node, context)))
-      if res.error: return res
+      if res.should_return(): return res
 
     return_value = res.register(value_to_call.execute(args))
-    if res.error: return res
+    if res.should_return(): return res
     return_value = return_value.copy().set_pos(node.pos_start, node.pos_end).set_context(context)
     return res.success(return_value)
+
+  def visit_ReturnNode(self, node, context):
+    res = RunTimeResult()
+
+    if node.node_to_return:
+      value = res.register(self.visit(node.node_to_return, context))
+      if res.should_return(): return res
+    else:
+      value = Number.null # doesnt matter
+
+    return res.success_return(value)
+
+  def visit_ContinueNode(self, node, context):
+    return RunTimeResult().success_continue()
+
+  def visit_BreakNode(self, node, context):
+    return RunTimeResult().success_break()
 
 # RUN
 
@@ -1999,6 +2220,8 @@ global_symbol_table.set("IS_FUN", BuiltInFunction.is_function)
 global_symbol_table.set("APPEND", BuiltInFunction.append)
 global_symbol_table.set("POP", BuiltInFunction.pop)
 global_symbol_table.set("EXTEND", BuiltInFunction.extend)
+global_symbol_table.set("LEN", BuiltInFunction.len)
+global_symbol_table.set("RUN", BuiltInFunction.run)
 
 def run(fn, text):
   # Generate tokens

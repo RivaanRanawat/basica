@@ -1,4 +1,9 @@
-statements  : NEWLINE* expr (NEWLINE+ expr)* NEWLINE*
+statements  : NEWLINE* statement (NEWLINE+ statement)* NEWLINE*
+
+statement : KEYWORD: RETURN expr?
+          : KEYWORD: BREAK
+          : KEYWORD: CONTINUE
+          : expr
 
 expr: KEYWORD: VAR IDENTIFIER EQ expr
     : comp_expr ((KEYWORD:AND|KEYWORD:OR) comp_expr)*
